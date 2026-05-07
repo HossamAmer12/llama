@@ -34,6 +34,7 @@ class LLaMA:
         device: str,
         use_memory_mapping: bool = False,
         low_memory: bool = False,
+        num_layers: Optional[int] = None,  # If set, load only this many layers (rest random)
     ):
         """
         TODO:
@@ -47,7 +48,12 @@ class LLaMA:
         """
         # Load params.json and initialize ModelArgs
         params_path = f"{checkpoints_dir}/params.json"
-        model_args = ModelArgs.from_json(params_path)  
+        model_args = ModelArgs.from_json(params_path)
+        
+        # Override number of layers if specified
+        if num_layers is not None:
+            print(f"Loading partial model with only {num_layers} layers (out of {model_args.n_layers})")
+            model_args.num_layers_to_load = num_layers  
         
         # Load the model checkpoint if required
         if load_model:
@@ -96,12 +102,28 @@ class LLaMA:
                 new_key = key.replace('feed_forward', 'ffn')
                 new_state_dict[new_key] = value
             
+            # If loading partial model, filter out layers beyond num_layers_to_load
+            if num_layers is not None:
+                filtered_state_dict = {}
+                for key, value in new_state_dict.items():
+                    # Keep embeddings, output, norm, and only the first N layers
+                    if key.startswith('layers.'):
+                        # Extract layer index from key like "layers.5.attention.wq.weight"
+                        layer_idx = int(key.split('.')[1])
+                        if layer_idx < num_layers:
+                            filtered_state_dict[key] = value
+                    else:
+                        # Keep all non-layer weights (embeddings, norm, output)
+                        filtered_state_dict[key] = value
+                new_state_dict = filtered_state_dict
+                print(f"Loaded state dict with {num_layers} layers (filtered from full model)")
+            
             # Remove RoPE frequencies if present
             if "rope.freqs" in new_state_dict:
                 del new_state_dict["rope.freqs"]
             
             print(f"Memory usage before loading state dict: {get_memory_usage():.2f} GB")
-            model.load_state_dict(new_state_dict, strict=True)
+            model.load_state_dict(new_state_dict, strict=False)  # strict=False to allow partial loading
             print("Model loaded successfully.")
             print(f"Memory usage after loading state dict: {get_memory_usage():.2f} GB")
             
@@ -303,6 +325,11 @@ if __name__ == "__main__":
     # 
     checkpoints_dir = "/Users/hossam.amer/Documents/workspace/Llama2_7b_weights"
     # hf download meta-llama/Llama-2-7b-hf --local-dir /Users/hossam.amer/Documents/workspace/Llama2_7b_weights
+    
+    # Optional: Set num_layers to load only partial model (e.g., 2 layers)
+    # This loads only the first N layers with pretrained weights, rest are randomly initialized
+    NUM_LAYERS_TO_LOAD = 6  # Set to 2 to load only first 2 layers, or None for full model
+    
     model = LLaMA.build(
         checkpoints_dir=checkpoints_dir,
         tokenizer_path=f"{checkpoints_dir}/tokenizer.model",
@@ -312,6 +339,7 @@ if __name__ == "__main__":
         device=device,
         use_memory_mapping=True,  # Use memory mapping to reduce memory usage
         low_memory=True,  # Use float16 instead of bfloat16 for lower memory
+        num_layers=NUM_LAYERS_TO_LOAD,  # Partial model loading: only load N layers
     )
     elapsed = time.time() - start
     print(f"Model initialization took {elapsed:.2f} seconds")

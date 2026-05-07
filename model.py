@@ -20,6 +20,7 @@ class ModelArgs:
     max_batch_size: int = 32
     max_seq_len: int = 2048
     device: str = None
+    num_layers_to_load: Optional[int] = None  # If set, load only this many layers (rest are randomly initialized)
     
     @classmethod
     def from_json(cls, json_path: str) -> "ModelArgs":
@@ -324,15 +325,16 @@ class Transformer(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
         assert args.vocab_size != -1
-        # TODO
         
         self.args = args
         self.args_vocab_size = args.vocab_size
         self.n_layers = args.n_layers
         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
         
-        # Define the number of layers
-        self.layers = nn.ModuleList([EncoderBlock(args) for _ in range(args.n_layers)])
+        # If num_layers_to_load is set, only create that many layers
+        # Otherwise create all n_layers
+        num_layers_to_create = args.num_layers_to_load if args.num_layers_to_load is not None else args.n_layers
+        self.layers = nn.ModuleList([EncoderBlock(args) for _ in range(num_layers_to_create)])
         
         # Define the rms normalization layer
         self.norm = RMSNorm(args.dim, args.norm_eps)
@@ -362,7 +364,7 @@ class Transformer(nn.Module):
         # Retrieve the relevant slice of precomputed frequencies (do not modify self.freq_complex)
         freqs = self.freq_complex[start_pos : start_pos + seq_len]  # shape: (Seq_Len, Head_Dim/2)
         
-        # apply each encoder block in sequence
+        # Apply only the loaded layers (if num_layers_to_load was set, we only have that many)
         for layer in self.layers:
             x = layer(x, start_pos, freqs)  # shape: (B, Seq_Len, Dim)
         
