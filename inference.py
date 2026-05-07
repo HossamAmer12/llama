@@ -6,6 +6,17 @@ from sentencepiece import SentencePieceProcessor
 from model import ModelArgs, Transformer
 from tqdm import tqdm
 import time 
+import gc
+
+def get_memory_usage():
+    """Get current memory usage in GB"""
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        return mem_info.rss / 1024**3  # Convert to GB
+    except ImportError:
+        return 0.0  # psutil not available 
 
 class LLaMA:
     def __init__(self, model: Transformer, tokenizer: SentencePieceProcessor, model_args: ModelArgs):
@@ -21,6 +32,8 @@ class LLaMA:
         max_seq_len: int,
         max_batch_size: int,
         device: str,
+        use_memory_mapping: bool = False,
+        low_memory: bool = False,
     ):
         """
         TODO:
@@ -43,27 +56,60 @@ class LLaMA:
             assert(len(checkpoints) > 0), "No checkpoints found in the specified directory."
             checkpoint_path = os.path.join(checkpoints_dir, checkpoints[-1])  # Load the latest checkpoint
             print(f"Loading model from checkpoint: {checkpoint_path}")
-            state_dict = torch.load(checkpoint_path, map_location=device)
+            print(f"Memory usage before loading: {get_memory_usage():.2f} GB")
+            
+            if use_memory_mapping:
+                print("Using memory mapping for checkpoint loading...")
+                state_dict = torch.load(checkpoint_path, map_location=device, mmap=True)
+            else:
+                state_dict = torch.load(checkpoint_path, map_location=device)
+            
+            print(f"Memory usage after loading checkpoint: {get_memory_usage():.2f} GB")
             
         # load tokenizer
         tokenizer = SentencePieceProcessor()
         tokenizer.load(tokenizer_path)
         model_args.vocab_size = tokenizer.vocab_size()
+        print(f"Tokenizer loaded with vocab size: {model_args.vocab_size}")
         
         if device == "cpu":
             model_args.n_gpu = 0
-            torch.set_default_tensor_type(torch.Bfloat16Tensor)  # Use full precision for CPU
+            if low_memory:
+                torch.set_default_dtype(torch.float16)  # Use float16 for lower memory usage
+                print("Using float16 precision for lower memory usage")
+            else:
+                torch.set_default_dtype(torch.bfloat16)  # Use bfloat16 precision for CPU
         else:
             model_args.n_gpu = torch.cuda.device_count()
-            torch.set_default_tensor_type(torch.cuda.HalfTensor)  # Use half precision for GPU  
+            torch.set_default_dtype(torch.float16)  # Use half precision for GPU
         
         # Build the Transformer model
+        print(f"Memory usage before model initialization: {get_memory_usage():.2f} GB")
         model = Transformer(model_args).to(device)
+        print(f"Memory usage after model initialization: {get_memory_usage():.2f} GB")
         
         if load_model:
-            del state_dict["rope.freqs"]  # Remove RoPE frequencies from state dict if present  
-            model.load_state_dict(state_dict, strict=True)  # Load the state dict into the model
-            print("Model loaded successfully.")   
+            # Remap layer names from checkpoint to match our model
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                # Change 'feed_forward' to 'ffn' to match our model
+                new_key = key.replace('feed_forward', 'ffn')
+                new_state_dict[new_key] = value
+            
+            # Remove RoPE frequencies if present
+            if "rope.freqs" in new_state_dict:
+                del new_state_dict["rope.freqs"]
+            
+            print(f"Memory usage before loading state dict: {get_memory_usage():.2f} GB")
+            model.load_state_dict(new_state_dict, strict=True)
+            print("Model loaded successfully.")
+            print(f"Memory usage after loading state dict: {get_memory_usage():.2f} GB")
+            
+            # Clean up checkpoint memory
+            del state_dict, new_state_dict
+            gc.collect()
+            print(f"Memory usage after cleanup: {get_memory_usage():.2f} GB")
+   
             
         return LLaMA(model, tokenizer, model_args) 
 
@@ -259,11 +305,13 @@ if __name__ == "__main__":
     # hf download meta-llama/Llama-2-7b-hf --local-dir /Users/hossam.amer/Documents/workspace/Llama2_7b_weights
     model = LLaMA.build(
         checkpoints_dir=checkpoints_dir,
-        tokenizer_path="tokenizer.model",
+        tokenizer_path=f"{checkpoints_dir}/tokenizer.model",
         load_model=True,
         max_seq_len=1024,
         max_batch_size=len(prompts),
         device=device,
+        use_memory_mapping=True,  # Use memory mapping to reduce memory usage
+        low_memory=True,  # Use float16 instead of bfloat16 for lower memory
     )
     elapsed = time.time() - start
     print(f"Model initialization took {elapsed:.2f} seconds")

@@ -4,6 +4,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import json
 
 
 @dataclass
@@ -19,6 +20,13 @@ class ModelArgs:
     max_batch_size: int = 32
     max_seq_len: int = 2048
     device: str = None
+    
+    @classmethod
+    def from_json(cls, json_path: str) -> "ModelArgs":
+        """Load ModelArgs from a JSON file."""
+        with open(json_path, 'r') as f:
+            params = json.load(f)
+        return cls(**params)
 
 
 # ──────────────────────────────────────────────
@@ -75,7 +83,8 @@ def precompute_theta_pos_frequencies(
     freqs = pos.unsqueeze(-1) * theta_vec.unsqueeze(0)  # shape: (seq_len, head_dim/2)
     
     # Convert to complex numbers: (seq_len, head_dim/2)
-    freqs_complex = torch.polar(torch.ones_like(freqs), freqs)  # shape: (seq_len, head_dim/2)
+    # torch.polar doesn't support bfloat16, so compute in float32 then convert
+    freqs_complex = torch.polar(torch.ones_like(freqs, dtype=torch.float32), freqs.float())  # shape: (seq_len, head_dim/2)
 
     return freqs_complex
 
@@ -219,7 +228,7 @@ class SelfAttention(nn.Module):
         # Compute attention probabilities with softmax in float32 for numerical stability
         scores = scores.float()  # ensure scores are in float32 for softmax stability
         attn_probs = F.softmax(scores, dim=-1)  # shape: (B, n_heads, Seq_Len, start_pos + Seq_Len)
-        attn_probs = attn_probs.type_as(scores)  # cast back to original dtype if needed
+        attn_probs = attn_probs.to(dtype=values.dtype)  # cast back to values dtype for matmul compatibility
         
         output = torch.matmul(attn_probs, values)  # shape: (B, n_heads, Seq_Len, head_dim) 
         
