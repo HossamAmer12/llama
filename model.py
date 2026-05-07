@@ -45,8 +45,8 @@ class RMSNorm(nn.Module):
         return x * rms
         
     def forward(self, x: torch.Tensor):
-        # TODO
-        return self.weight * self._norm(x.float()).as_type(x.dtype)  # ensure x is in float32 for stability
+        output = self.weight * self._norm(x.float())
+        return output.to(x.dtype)
 
 
 # ──────────────────────────────────────────────
@@ -96,7 +96,7 @@ def apply_rotary_embeddings(
 ) -> torch.Tensor:
 
     # Reshape x to separate the last dimension into complex pairs
-    x_complex = x.view_as_complex(x.view(*x.shape[:-1], -1, 2))  # shape: (B, Seq_Len, H, Head_Dim/2)
+    x_complex = torch.view_as_complex(x.view(*x.shape[:-1], -1, 2))  # shape: (B, Seq_Len, H, Head_Dim/2)
     
     # Unsqueeze freqs_complex to align with x_complex for broadcasting
     freqs_complex = freqs_complex.unsqueeze(0).unsqueeze(2)  # shape: (1, Seq_Len, 1, Head_Dim/2)
@@ -110,7 +110,7 @@ def apply_rotary_embeddings(
     # Flatten the last two dimensions back to the original shape
     x_out = x_out.view(*x.shape)  # shape: (B, Seq_Len, H, Head_Dim)
     
-    return x_out.type_as_(x).to(device)  # ensure output has the same dtype as input
+    return x_out.type_as(x).to(device)  # ensure output has the same dtype as input
 
 
 # ──────────────────────────────────────────────
@@ -139,7 +139,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 # Layer 2+3 — Self-attention with KV cache
 # ──────────────────────────────────────────────
 # __init__ checklist:
-#   - n_kv_heads, n_heads_q, n_rep, head_dim
+#   - n_kv_heads, n_heads, n_rep, head_dim
 #   - wq: dim  → n_heads   * head_dim  (no bias)
 #   - wk: dim  → n_kv_heads * head_dim (no bias)
 #   - wv: dim  → n_kv_heads * head_dim (no bias)
@@ -161,17 +161,17 @@ class SelfAttention(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
         
-        self.n_heads_q = args.n_heads
+        self.n_heads = args.n_heads
         self.n_heads_kv = args.n_kv_heads or args.n_heads
-        self.n_rep = self.n_heads_q // self.n_heads_kv
-        self.head_dim = args.dim // args.n_heads_q
-        assert self.n_heads_q % self.n_heads_kv == 0, "n_heads must be divisible by n_kv_heads"
+        self.n_rep = self.n_heads // self.n_heads_kv
+        self.head_dim = args.dim // args.n_heads
+        assert self.n_heads % self.n_heads_kv == 0, "n_heads must be divisible by n_kv_heads"
         
         # Define the linear layers for query, key, value, and output projections
-        self.wq = nn.Linear(args.dim, self.n_heads_q * self.head_dim, bias=False)
+        self.wq = nn.Linear(args.dim, self.n_heads * self.head_dim, bias=False)
         self.wk = nn.Linear(args.dim, self.n_heads_kv * self.head_dim, bias=False)
         self.wv = nn.Linear(args.dim, self.n_heads_kv * self.head_dim, bias=False)
-        self.wo = nn.Linear(self.n_heads_q * self.head_dim, args.dim, bias=False)
+        self.wo = nn.Linear(self.n_heads * self.head_dim, args.dim, bias=False)
         
         # Initialize the key and value caches
         self.register_buffer("cache_k", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim), persistent=False)
@@ -187,7 +187,7 @@ class SelfAttention(nn.Module):
         # View operation is because the linear layers output (B, Seq_Len, n_heads * head_dim) and we want to reshape to separate heads
         # Multiply input by projection matrices to get query, key, value tensors
         B, Seq_Len, _ = x.shape
-        xq = self.wq(x).view(B, Seq_Len, self.n_heads_q, self.head_dim)  # shape: (B, Seq_Len, n_heads_q, head_dim)
+        xq = self.wq(x).view(B, Seq_Len, self.n_heads, self.head_dim)  # shape: (B, Seq_Len, n_heads, head_dim)
         xk = self.wk(x).view(B, Seq_Len, self.n_heads_kv, self.head_dim)  # shape: (B, Seq_Len, n_heads_kv, head_dim)
         xv = self.wv(x).view(B, Seq_Len, self.n_heads_kv, self.head_dim)  # shape: (B, Seq_Len, n_heads_kv, head_dim)   
         
@@ -205,26 +205,26 @@ class SelfAttention(nn.Module):
         values = self.cache_v[:B, 0: start_pos + Seq_Len]  # shape: (B, start_pos + Seq_Len, n_heads_kv, head_dim)
         
         # Repeat the keys and values to match the number of query heads if necessary (GQA)
-        keys = repeat_kv(keys, self.n_rep)  # shape: (B, start_pos + Seq_Len, n_heads_q, head_dim)
-        values = repeat_kv(values, self.n_rep)  # shape: (B, start_pos + Seq_Len, n_heads_q, head_dim)
+        keys = repeat_kv(keys, self.n_rep)  # shape: (B, start_pos + Seq_Len, n_heads, head_dim)
+        values = repeat_kv(values, self.n_rep)  # shape: (B, start_pos + Seq_Len, n_heads, head_dim)
         
-        # Transpose for attention computation: (B, n_heads_q, Seq_Len, head_dim)
-        xq = xq.transpose(1, 2)  # shape: (B, n_heads_q, Seq_Len, head_dim)
-        keys = keys.transpose(1, 2)  # shape: (B, n_heads_q, start_pos + Seq_Len, head_dim)
-        values = values.transpose(1, 2)  # shape: (B, n_heads_q, start_pos + Seq_Len, head_dim)
+        # Transpose for attention computation: (B, n_heads, Seq_Len, head_dim)
+        xq = xq.transpose(1, 2)  # shape: (B, n_heads, Seq_Len, head_dim)
+        keys = keys.transpose(1, 2)  # shape: (B, n_heads, start_pos + Seq_Len, head_dim)
+        values = values.transpose(1, 2)  # shape: (B, n_heads, start_pos + Seq_Len, head_dim)
         
         # Compute attention scores
-        scores = torch.matmul(xq, keys.transpose(-2, -1)) / math.sqrt(self.head_dim)  # shape: (B, n_heads_q, Seq_Len, start_pos + Seq_Len) 
+        scores = torch.matmul(xq, keys.transpose(-2, -1)) / math.sqrt(self.head_dim)  # shape: (B, n_heads, Seq_Len, start_pos + Seq_Len) 
         
         # Compute attention probabilities with softmax in float32 for numerical stability
         scores = scores.float()  # ensure scores are in float32 for softmax stability
-        attn_probs = F.softmax(scores, dim=-1)  # shape: (B, n_heads_q, Seq_Len, start_pos + Seq_Len)
+        attn_probs = F.softmax(scores, dim=-1)  # shape: (B, n_heads, Seq_Len, start_pos + Seq_Len)
         attn_probs = attn_probs.type_as(scores)  # cast back to original dtype if needed
         
-        output = torch.matmul(attn_probs, values)  # shape: (B, n_heads_q, Seq_Len, head_dim) 
+        output = torch.matmul(attn_probs, values)  # shape: (B, n_heads, Seq_Len, head_dim) 
         
         # Reshape and project the output back to the original dimension
-        output = output.transpose(1, 2).contiguous().view(B, Seq_Len, self.n_heads_q * self.head_dim)  # shape: (B, Seq_Len, n_heads_q * head_dim)
+        output = output.transpose(1, 2).contiguous().view(B, Seq_Len, self.n_heads * self.head_dim)  # shape: (B, Seq_Len, n_heads * head_dim)
         output = self.wo(output)  # shape: (B, Seq_Len, dim)    
         
         return output    
@@ -261,8 +261,7 @@ class FeedForward(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
         # Compute the feed-forward output using the SwiGLU activation function
-        x = self.w1(x)  # shape: (B, Seq_Len, hidden_dim)
-        gate = F.silu(x)  # shape: (B, Seq_Len, hidden_dim) 
+        gate = F.silu(self.w1(x))  # shape: (B, Seq_Len, hidden_dim)
         x_3 = self.w3(x)  # shape: (B, Seq_Len, hidden_dim)
         fused = gate * x_3  # shape: (B, Seq_Len, hidden_dim)
         output = self.w2(fused)  # shape: (B, Seq_Len, dim)
@@ -351,12 +350,12 @@ class Transformer(nn.Module):
         # Embed tokens
         x = self.tok_embeddings(tokens)  # shape: (B, Seq_Len, Dim)
         
-        # Retrieve the relevant slice of precomputed frequencies
-        self.freq_complex = self.freq_complex[start_pos : start_pos + seq_len]  # shape: (Seq_Len, Head_Dim/2)
+        # Retrieve the relevant slice of precomputed frequencies (do not modify self.freq_complex)
+        freqs = self.freq_complex[start_pos : start_pos + seq_len]  # shape: (Seq_Len, Head_Dim/2)
         
         # apply each encoder block in sequence
         for layer in self.layers:
-            x = layer(x, start_pos, self.freq_complex)  # shape: (B, Seq_Len, Dim)
+            x = layer(x, start_pos, freqs)  # shape: (B, Seq_Len, Dim)
         
         x = self.norm(x)  # shape: (B, Seq_Len, Dim)
         logits = self.output(x)  # shape: (B, Seq_Len, Vocab_Size)
@@ -368,24 +367,27 @@ class Transformer(nn.Module):
 # ──────────────────────────────────────────────
 # Quick smoke test — run this to check your work
 # ──────────────────────────────────────────────
-# if __name__ == "__main__":
-#     args = ModelArgs(
-#         dim=128,
-#         n_layers=2,
-#         n_heads=4,
-#         n_kv_heads=2,
-#         vocab_size=1000,
-#         max_batch_size=2,
-#         max_seq_len=64,
-#         device="cpu",
-#     )
+if __name__ == "__main__":
+    args = ModelArgs(
+        dim=128,
+        n_layers=2,
+        n_heads=4,
+        n_kv_heads=2,
+        vocab_size=1000,
+        max_batch_size=2,
+        max_seq_len=64,
+        device="cpu",
+    )
 
-#     model = Transformer(args)
+    model = Transformer(args)
+    print("Model initialized successfully. Running smoke test...")
+    print(model)
+    
+    print("Testing forward pass with dummy tokens...")
+    # Simulate prefill of 10 tokens one at a time
+    for pos in range(10):
+        tok = torch.randint(0, args.vocab_size, (1, 1))
+        logits = model(tok, start_pos=pos)
+        assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
 
-#     # Simulate prefill of 10 tokens one at a time
-#     for pos in range(10):
-#         tok = torch.randint(0, args.vocab_size, (1, 1))
-#         logits = model(tok, start_pos=pos)
-#         assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
-
-#     print("All shape checks passed.")
+    print("All shape checks passed.")
