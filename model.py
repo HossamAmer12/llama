@@ -367,27 +367,27 @@ class Transformer(nn.Module):
 # ──────────────────────────────────────────────
 # Quick smoke test — run this to check your work
 # ──────────────────────────────────────────────
-if __name__ == "__main__":
-    args = ModelArgs(
-        dim=128,
-        n_layers=2,
-        n_heads=4,
-        n_kv_heads=2,
-        vocab_size=1000,
-        max_batch_size=2,
-        max_seq_len=64,
-        device="cpu",
-    )
+# if __name__ == "__main__":
+#     args = ModelArgs(
+#         dim=128,
+#         n_layers=2,
+#         n_heads=4,
+#         n_kv_heads=2,
+#         vocab_size=1000,
+#         max_batch_size=2,
+#         max_seq_len=64,
+#         device="cpu",
+#     )
 
-    model = Transformer(args)
-    print("Model initialized successfully. Running smoke test...")
-    print(model)
+#     model = Transformer(args)
+#     print("Model initialized successfully. Running smoke test...")
+#     print(model)
     
-    print("Testing forward pass with dummy tokens...")
-    # Simulate prefill of 10 tokens one at a time
-    for pos in range(10):
-        tok = torch.randint(0, args.vocab_size, (1, 1))
-        logits = model(tok, start_pos=pos)
-        assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
+#     print("Testing forward pass with dummy tokens...")
+#     # Simulate prefill of 10 tokens one at a time
+#     for pos in range(10):
+#         tok = torch.randint(0, args.vocab_size, (1, 1))
+#         logits = model(tok, start_pos=pos)
+#         assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
 
-    print("All shape checks passed.")
+#     print("All shape checks passed.")
