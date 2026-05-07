@@ -5,7 +5,7 @@ from sentencepiece import SentencePieceProcessor
 
 from model import ModelArgs, Transformer
 from tqdm import tqdm
-
+import time 
 
 class LLaMA:
     def __init__(self, model: Transformer, tokenizer: SentencePieceProcessor, model_args: ModelArgs):
@@ -252,16 +252,22 @@ if __name__ == "__main__":
         """,
     ]
 
+    start = time.time()
+    # To get the weights, you need to load them thru huggingface and then save the checkpoint files locally. You can use the following code to do that:
+    # 
+    checkpoints_dir = "/Users/hossam.amer/Documents/workspace/Llama2_7b_weights"
+    # hf download meta-llama/Llama-2-7b-hf --local-dir /Users/hossam.amer/Documents/workspace/Llama2_7b_weights
     model = LLaMA.build(
-        checkpoints_dir="llama-2-7b/",
+        checkpoints_dir=checkpoints_dir,
         tokenizer_path="tokenizer.model",
         load_model=True,
         max_seq_len=1024,
         max_batch_size=len(prompts),
         device=device,
     )
+    elapsed = time.time() - start
+    print(f"Model initialization took {elapsed:.2f} seconds")
 
-    print("Model initialized")
 
     out_tokens, out_texts = model.text_completion(prompts, max_gen_len=64)
 
