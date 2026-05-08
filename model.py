@@ -184,8 +184,8 @@ class SelfAttention(nn.Module):
         self.wo = nn.Linear(self.n_heads * self.head_dim, args.dim, bias=False)
         
         # Initialize the key and value caches
-        self.register_buffer("cache_k", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim), persistent=False)
-        self.register_buffer("cache_v", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim), persistent=False)
+        self.register_buffer("cache_k", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim, device=args.device), persistent=False)
+        self.register_buffer("cache_v", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim, device=args.device), persistent=False)
         
     def forward(
         self,
