@@ -305,19 +305,23 @@ if __name__ == "__main__":
     allow_cuda = False  # Set to True if you have a compatible GPU and want to use it
     device = "cuda" if allow_cuda else "cpu"
 
-    prompts = [
-        "Simply put, the theory of relativity states that ",
-        "If Google was an Italian company founded in Milan, it would",
-        """Translate English to French:
+    # prompts = [
+    #     "Simply put, the theory of relativity states that ",
+    #     "If Google was an Italian company founded in Milan, it would",
+    #     """Translate English to French:
 
-        sea otter => loutre de mer
-        peppermint => menthe poivrée
-        plush giraffe => girafe peluche
-        cheese =>""",
-        """Tell me if the following person is actually Doraemon disguised as human:
-        Name: Umar Jamil
-        Decision:
-        """,
+    #     sea otter => loutre de mer
+    #     peppermint => menthe poivrée
+    #     plush giraffe => girafe peluche
+    #     cheese =>""",
+    #     """Tell me if the following person is actually Doraemon disguised as human:
+    #     Name: Umar Jamil
+    #     Decision:
+    #     """,
+    # ]
+    
+    prompts = [
+        "Machine learning is ",
     ]
 
     start = time.time()
@@ -328,7 +332,7 @@ if __name__ == "__main__":
     
     # Optional: Set num_layers to load only partial model (e.g., 2 layers)
     # This loads only the first N layers with pretrained weights, rest are randomly initialized
-    NUM_LAYERS_TO_LOAD = 6  # Set to 2 to load only first 2 layers, or None for full model
+    NUM_LAYERS_TO_LOAD = 8  # Set to 2 to load only first 2 layers, or None for full model
     
     model = LLaMA.build(
         checkpoints_dir=checkpoints_dir,
