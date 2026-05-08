@@ -6,7 +6,7 @@ import json
 from sentencepiece import SentencePieceProcessor
 from tqdm import tqdm
 
-from model import ModelArgs, Transformer
+from org_model import ModelArgs, Transformer
 
 class LLaMA:
 
