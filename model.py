@@ -67,27 +67,27 @@ class RMSNorm(nn.Module):
 #          freqs[m] = m * theta  (outer product)
 #          result = polar(1, freqs)  →  complex
 # ──────────────────────────────────────────────
-def precompute_theta_pos_frequencies(
-    head_dim: int, seq_len: int, device: str, theta: float = 10000.0
-) -> torch.Tensor:
-    # Head dimension must be even for RoPE since we pair up sin/cos components into complex numbers
-    assert head_dim % 2 == 0, "Head dimension must be even for RoPE"
-    
-    # Build the theta vector: (head_dim/2,)
-    i = torch.arange(head_dim // 2, device=device)
-    theta_vec = theta ** (-2 * i / head_dim)  # shape: (head_dim/2,)
-    
-    # Build the position vector: (seq_len,)
-    pos = torch.arange(seq_len, device=device)  # shape: (seq_len,)
-    
-    # Compute the frequency tensor: (seq_len, head_dim/2)
-    freqs = pos.unsqueeze(-1) * theta_vec.unsqueeze(0)  # shape: (seq_len, head_dim/2)
-    
-    # Convert to complex numbers: (seq_len, head_dim/2)
-    # torch.polar doesn't support bfloat16, so compute in float32 then convert
-    freqs_complex = torch.polar(torch.ones_like(freqs, dtype=torch.float32), freqs.float())  # shape: (seq_len, head_dim/2)
+def precompute_theta_pos_frequencies(head_dim: int, seq_len: int, device: str, theta: float = 10000.0):
+    # As written in the paragraph 3.2.2 of the paper
+    # >> In order to generalize our results in 2D to any xi ∈ Rd where **d is even**, [...]
+    assert head_dim % 2 == 0, "Dimension must be divisible by 2"
+    # Build the theta parameter
+    # According to the formula theta_i = 10000^(-2(i-1)/dim) for i = [1, 2, ... dim/2]
+    # Shape: (Head_Dim / 2)
+    theta_numerator = torch.arange(0, head_dim, 2).float()
+    # Shape: (Head_Dim / 2)
+    theta = 1.0 / (theta ** (theta_numerator / head_dim)).to(device) # (Dim / 2)
+    # Construct the positions (the "m" parameter)
+    # Shape: (Seq_Len)
+    m = torch.arange(seq_len, device=device)
+    # Multiply each theta by each position using the outer product.
+    # Shape: (Seq_Len) outer_product* (Head_Dim / 2) -> (Seq_Len, Head_Dim / 2)
+    freqs = torch.outer(m, theta).float()
+    # We can compute complex numbers in the polar form c = R * exp(m * theta), where R = 1 as follows:
+    # (Seq_Len, Head_Dim / 2) -> (Seq_Len, Head_Dim / 2)
+    freqs_complex = torch.polar(torch.ones_like(freqs), freqs)
+    return freqs_complex.to(device)  # ensure it's on device
 
-    return freqs_complex
 
 
 # ──────────────────────────────────────────────
@@ -106,7 +106,9 @@ def apply_rotary_embeddings(
 ) -> torch.Tensor:
 
     # Reshape x to separate the last dimension into complex pairs
-    x_complex = torch.view_as_complex(x.view(*x.shape[:-1], -1, 2))  # shape: (B, Seq_Len, H, Head_Dim/2)
+    # x_complex = torch.view_as_complex(x.view(*x.shape[:-1], -1, 2))  # shape: (B, Seq_Len, H, Head_Dim/2)
+    x_complex = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
+
     
     # Unsqueeze freqs_complex to align with x_complex for broadcasting
     freqs_complex = freqs_complex.unsqueeze(0).unsqueeze(2)  # shape: (1, Seq_Len, 1, Head_Dim/2)
@@ -184,8 +186,8 @@ class SelfAttention(nn.Module):
         self.wo = nn.Linear(self.n_heads * self.head_dim, args.dim, bias=False)
         
         # Initialize the key and value caches
-        self.register_buffer("cache_k", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim, device=args.device), persistent=False)
-        self.register_buffer("cache_v", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim, device=args.device), persistent=False)
+        self.register_buffer("cache_k", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim), persistent=False)
+        self.register_buffer("cache_v", torch.zeros(args.max_batch_size, args.max_seq_len, self.n_heads_kv, self.head_dim), persistent=False)
         
     def forward(
         self,
@@ -291,7 +293,7 @@ class EncoderBlock(nn.Module):
         self.n_heads = args.n_heads
         self.head_dim = args.dim // args.n_heads
         self.attention = SelfAttention(args)
-        self.ffn = FeedForward(args)
+        self.feed_forward = FeedForward(args)
         self.attention_norm = RMSNorm(args.dim, args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, args.norm_eps)
         
@@ -301,7 +303,7 @@ class EncoderBlock(nn.Module):
     ) -> torch.Tensor:
         
         h = x + self.attention(self.attention_norm(x), start_pos, freqs_complex)
-        out = h + self.ffn(self.ffn_norm(h))
+        out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
 # ──────────────────────────────────────────────
@@ -333,8 +335,10 @@ class Transformer(nn.Module):
         
         # If num_layers_to_load is set, only create that many layers
         # Otherwise create all n_layers
-        num_layers_to_create = args.num_layers_to_load if args.num_layers_to_load is not None else args.n_layers
-        self.layers = nn.ModuleList([EncoderBlock(args) for _ in range(num_layers_to_create)])
+        self.layers = nn.ModuleList()
+        for layer_id in range(args.n_layers):
+            self.layers.append(EncoderBlock(args))
+
         
         # Define the rms normalization layer
         self.norm = RMSNorm(args.dim, args.norm_eps)
@@ -343,11 +347,11 @@ class Transformer(nn.Module):
         self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
         
         # Freqs_complex precomputation
-        self.freq_complex = precompute_theta_pos_frequencies(
-            head_dim=args.dim // args.n_heads,
-            seq_len=args.max_seq_len * 2,
-            device=args.device,
-        )
+        self.freqs_complex = precompute_theta_pos_frequencies(
+          self.args.dim // self.args.n_heads,
+          self.args.max_seq_len * 2,
+          device=self.args.device).to(self.args.device)
+       
         
         
         
@@ -362,7 +366,7 @@ class Transformer(nn.Module):
         x = self.tok_embeddings(tokens)  # shape: (B, Seq_Len, Dim)
         
         # Retrieve the relevant slice of precomputed frequencies (do not modify self.freq_complex)
-        freqs = self.freq_complex[start_pos : start_pos + seq_len]  # shape: (Seq_Len, Head_Dim/2)
+        freqs = self.freqs_complex[start_pos : start_pos + seq_len]  # shape: (Seq_Len, Head_Dim/2)
         
         # Apply only the loaded layers (if num_layers_to_load was set, we only have that many)
         for layer in self.layers:
@@ -375,30 +379,32 @@ class Transformer(nn.Module):
                 
 
 
-# ──────────────────────────────────────────────
-# Quick smoke test — run this to check your work
-# ──────────────────────────────────────────────
-# if __name__ == "__main__":
-#     args = ModelArgs(
-#         dim=128,
-#         n_layers=2,
-#         n_heads=4,
-#         n_kv_heads=2,
-#         vocab_size=1000,
-#         max_batch_size=2,
-#         max_seq_len=64,
-#         device="cpu",
-#     )
+#──────────────────────────────────────────────
+#Quick smoke test — run this to check your work
+#──────────────────────────────────────────────
+if __name__ == "__main__":
+    args = ModelArgs(
+        dim=128,
+        n_layers=2,
+        n_heads=4,
+        n_kv_heads=2,
+        vocab_size=1000,
+        max_batch_size=2,
+        max_seq_len=64,
+        #device="cpu",
+        device="cuda",
+    )
 
-#     model = Transformer(args)
-#     print("Model initialized successfully. Running smoke test...")
-#     print(model)
+    model = Transformer(args).to(args.device)
+
+    print("Model initialized successfully. Running smoke test...")
+    print(model)
     
-#     print("Testing forward pass with dummy tokens...")
-#     # Simulate prefill of 10 tokens one at a time
-#     for pos in range(10):
-#         tok = torch.randint(0, args.vocab_size, (1, 1))
-#         logits = model(tok, start_pos=pos)
-#         assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
+    print("Testing forward pass with dummy tokens...")
+    # Simulate prefill of 10 tokens one at a time
+    for pos in range(10):
+        tok = torch.randint(0, args.vocab_size, (1, 1)).to(args.device)
+        logits = model(tok, start_pos=pos)
+        assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
 
-#     print("All shape checks passed.")
+    print("All shape checks passed.")

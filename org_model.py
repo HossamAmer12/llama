@@ -44,7 +44,14 @@ class Transformer(nn.Module):
         self.output = nn.Linear(args.dim, self.vocab_size, bias=False)
         
         # Frequencies for rotary positional embeddings
-        self.freqs_complex = precompute_theta_pos_frequencies(self.args.dim // self.args.n_heads, self.args.max_seq_len * 2, device=self.args.device)
+        #self.freqs_complex = precompute_theta_pos_frequencies(self.args.dim // self.args.n_heads, self.args.max_seq_len * 2, device=self.args.device)
+        
+        # With:
+        self.freqs_complex = precompute_theta_pos_frequencies(
+          self.args.dim // self.args.n_heads,
+          self.args.max_seq_len * 2,
+          device=self.args.device).to(self.args.device)
+       
 
     
     # Sequence length is always 1 for the latest token
@@ -88,7 +95,7 @@ def precompute_theta_pos_frequencies(head_dim: int, seq_len: int, device: str, t
     # We can compute complex numbers in the polar form c = R * exp(m * theta), where R = 1 as follows:
     # (Seq_Len, Head_Dim / 2) -> (Seq_Len, Head_Dim / 2)
     freqs_complex = torch.polar(torch.ones_like(freqs), freqs)
-    return freqs_complex    
+    return freqs_complex.to(device)  # ensure it's on device
 
 def apply_rotary_embeddings(x: torch.Tensor, freqs_complex: torch.Tensor, device: str):
     # Separate the last dimension pairs of two values, representing the real and imaginary parts of the complex number
@@ -183,8 +190,18 @@ class SelfAttention(nn.Module):
         self.wv = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
         self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
 
-        self.cache_k = torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim))
-        self.cache_v = torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim))
+        #self.cache_k = torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim))
+        #self.cache_v = torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim))
+        
+        # Move the cache to device
+        #self_cache_k = self.cache_k.to(args.device)
+        #self_cache_v = self.cache_v.to(args.device)
+        
+        #self.register_buffer("cache_k", torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim)))
+        #self.register_buffer("cache_v", torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim)))
+        
+        self.register_buffer("cache_k", torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim),device=args.device), persistent=False)
+        self.register_buffer("cache_v", torch.zeros((args.max_batch_size, args.max_seq_len, self.n_kv_heads, self.head_dim),device=args.device), persistent=False)
 
     def forward(
         self,
@@ -283,3 +300,33 @@ class FeedForward(nn.Module):
         # (B, Seq_Len, Hidden_Dim) --> (B, Seq_Len, Dim)
         x = self.w2(x)
         return x
+      
+#──────────────────────────────────────────────
+#Quick smoke test — run this to check your work
+#──────────────────────────────────────────────
+if __name__ == "__main__":
+    args = ModelArgs(
+        dim=128,
+        n_layers=2,
+        n_heads=4,
+        n_kv_heads=2,
+        vocab_size=1000,
+        max_batch_size=2,
+        max_seq_len=64,
+        #device="cpu",
+        device="cuda",
+    )
+
+    model = Transformer(args).to(args.device)
+
+    print("Model initialized successfully. Running smoke test...")
+    print(model)
+    
+    print("Testing forward pass with dummy tokens...")
+    # Simulate prefill of 10 tokens one at a time
+    for pos in range(10):
+        tok = torch.randint(0, args.vocab_size, (1, 1)).to(args.device)
+        logits = model(tok, start_pos=pos)
+        assert logits.shape == (1, 1, args.vocab_size), f"Bad shape at pos {pos}: {logits.shape}"
+
+    print("All shape checks passed.")
