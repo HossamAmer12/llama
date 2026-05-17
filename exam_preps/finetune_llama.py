@@ -115,7 +115,7 @@ def train():
 
     model  = build_tiny_model(tokenizer.vocab_size()) if LOCAL_TEST else build_model(tokenizer)
     optim  = build_optimizer(model)
-    scaler = torch.cuda.amp.GradScaler(enabled=(DEVICE == "cuda"))
+    scaler = torch.amp.GradScaler("cuda", enabled=(DEVICE == "cuda"))
 
     print("Model built and optimizer ready.")
     print(f"Model: {model}")
