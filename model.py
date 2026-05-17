@@ -391,8 +391,8 @@ if __name__ == "__main__":
         vocab_size=1000,
         max_batch_size=2,
         max_seq_len=64,
-        #device="cpu",
-        device="cuda",
+        device="cpu", # activate if you are running on local CPU and want to avoid GPU out-of-memory errors during development. Switch to "cuda" when you are ready to test on GPU.
+        # device="cuda",
     )
 
     model = Transformer(args).to(args.device)
