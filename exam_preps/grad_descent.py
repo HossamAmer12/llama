@@ -22,6 +22,17 @@ def gradient_descent(start_x, learning_rate, num_iterations):
         history.append(x)
     return history
 
+def gradient_descent_momentum(x0=3.0, lr=0.01, momentum=0.9, tol=1e-6, max_steps=1000):
+    x = x0
+    velocity = 0.0
+    for step in range(max_steps):
+        grad = grad_f(x)
+        if abs(grad) < tol:
+            break
+        velocity = momentum * velocity - lr * grad
+        x += velocity
+    return x, f(x), step + 1
+
 # Parameters for gradient descent
 start_x = 0.0
 learning_rate = 0.1
@@ -46,3 +57,7 @@ plt.xlabel('x')
 plt.ylabel('f(x)')
 plt.legend()
 plt.show()
+
+
+x, loss, steps = gradient_descent_momentum(x0=3.0, lr=0.01, momentum=0.9)
+print(f"minimum at x={x:.6f}, f(x)={loss:.6f}, steps={steps}")
