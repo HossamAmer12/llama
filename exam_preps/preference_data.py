@@ -4,6 +4,63 @@ Each entry: {"prompt": "Q: ...\nA:", "chosen": " <correct>", "rejected": " <wron
 Rejected answers use realistic mistake patterns (wrong op, off-by-one, partial, unit error)
 """
 
+import torch
+import torch.nn.functional as F
+from sentencepiece import SentencePieceProcessor
+
+
+def load_preference_data():
+    """Return the raw preference pairs list."""
+    return PREFERENCE_DATA
+
+
+def tokenize_example(example: dict, tokenizer: SentencePieceProcessor):
+    """Tokenize one preference pair.
+
+    Returns:
+        input_ids_w       : (T_w,) chosen  tokens  (prompt + chosen  response)
+        input_ids_l       : (T_l,) rejected tokens (prompt + rejected response)
+        response_start_idx: int — index where the response begins (= prompt length)
+    """
+    prompt_ids   = tokenizer.encode(example["prompt"],   out_type=int, add_bos=True,  add_eos=False)
+    chosen_ids   = tokenizer.encode(example["chosen"],   out_type=int, add_bos=False, add_eos=True)
+    rejected_ids = tokenizer.encode(example["rejected"], out_type=int, add_bos=False, add_eos=True)
+
+    input_ids_w = torch.tensor(prompt_ids + chosen_ids,   dtype=torch.long)
+    input_ids_l = torch.tensor(prompt_ids + rejected_ids, dtype=torch.long)
+    return input_ids_w, input_ids_l, len(prompt_ids)
+
+
+def pad_to_same_length(sequences, pad_id: int = 0):
+    """Pad a list of 1-D tensors to the length of the longest one."""
+    max_len = max(s.shape[0] for s in sequences)
+    padded  = [F.pad(s, (0, max_len - s.shape[0]), value=pad_id) for s in sequences]
+    return torch.stack(padded)
+
+
+def get_preference_batch(
+    data: list,
+    tokenizer: SentencePieceProcessor,
+    batch_size: int,
+    device: str,
+):
+    """Sample a random batch, tokenize on-the-fly, and pad to same length.
+
+    Returns:
+        input_ids_w        : (B, T) chosen  sequences
+        input_ids_l        : (B, T) rejected sequences
+        response_start_idx : int — min prompt length in batch (safe mask boundary)
+    """
+    batch     = [data[i] for i in torch.randint(0, len(data), (batch_size,)).tolist()]
+    tokenized = [tokenize_example(ex, tokenizer) for ex in batch]
+    w_seqs, l_seqs, prompt_lens = zip(*tokenized)
+
+    return (
+        pad_to_same_length(w_seqs).to(device),
+        pad_to_same_length(l_seqs).to(device),
+        min(prompt_lens),
+    )
+
 PREFERENCE_DATA = [
 
     # ── 1. Distance = speed × time (20 examples) ──────────────────────────────
