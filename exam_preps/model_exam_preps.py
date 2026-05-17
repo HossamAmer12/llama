@@ -391,7 +391,10 @@ class Transformer(nn.Module):
 
         # inititlize the embedding
         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
-
+        
+        # initilize the positional embedding
+        # self.pos_embedding = SinusoidalPositionalEmbedding(args.dim, args.max_seq_len * 2)
+        
         # Layers inside the transformer
         self.layers = nn.ModuleList([EncoderBlock(args) for _ in range(args.n_layers)])
         self.norm = RMSNorm(args.dim, args.norm_eps)
@@ -412,6 +415,10 @@ class Transformer(nn.Module):
 
         # Embed the tokens --> B, S, D
         x = self.tok_embeddings(tokens)
+        
+        # if self.args.positional_embedding_type == "sinusoidal":
+        #     # Add the positional embeddings to the token embeddings
+        #     x = x + self.pos_embedding(tokens).unsqueeze(0) # unsqueeze for batch dimension
 
         # Slice the complex frequencies
         freqs_complex = self.freqs_complex[start_pos : start_pos + seq_len]
