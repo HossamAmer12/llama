@@ -3,6 +3,7 @@ train.py — fine-tuning on TinyShakespeare with gradient accumulation
 """
 
 import os, math, time, json, requests, torch, torch.nn as nn
+import matplotlib.pyplot as plt
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
 from model_exam_preps import ModelArgs, Transformer, apply_rotary_embeddings, repeat_kv
@@ -123,6 +124,8 @@ def train():
     model.train()
     optim.zero_grad()
 
+    train_losses, val_losses, log_steps = [], [], []
+
     t0 = time.time()
     for step in range(MAX_STEPS):
         # ── gradient accumulation ────────────────────────────────────────────
@@ -159,10 +162,28 @@ def train():
                 ).item()
             model.train()
 
+            train_losses.append(accum_loss)
+            val_losses.append(val_loss)
+            log_steps.append(step)
+
             elapsed = time.time() - t0
             print(f"step {step:4d} | train_loss {accum_loss:.4f} | val_loss {val_loss:.4f} | {elapsed:.1f}s")
 
     print("Training done.")
+    plot_losses(log_steps, train_losses, val_losses)
+
+def plot_losses(steps, train_losses, val_losses):
+    plt.figure(figsize=(8, 4))
+    plt.plot(steps, train_losses, label="train")
+    plt.plot(steps, val_losses,   label="val")
+    plt.xlabel("step")
+    plt.ylabel("loss")
+    plt.title("Train vs Val Loss")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("losses.png", dpi=150)
+    plt.show()
+    print("Plot saved to losses.png")
 
 if __name__ == "__main__":
     train()
