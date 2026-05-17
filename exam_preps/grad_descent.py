@@ -59,5 +59,5 @@ plt.legend()
 plt.show()
 
 
-x, loss, steps = gradient_descent_momentum(x0=3.0, lr=0.01, momentum=0.9)
+x, loss, steps = gradient_descent_momentum(x0=1.0, lr=0.01, momentum=0.9)
 print(f"minimum at x={x:.6f}, f(x)={loss:.6f}, steps={steps}")
