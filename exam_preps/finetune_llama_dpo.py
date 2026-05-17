@@ -24,6 +24,10 @@ GRAD_CLIP   = 1.0
 BETA        = 0.1   # DPO temperature — controls how far policy drifts from reference
 DEVICE      = "cpu" if LOCAL_TEST else ("cuda" if torch.cuda.is_available() else "cpu")
 
+SEED   = 43
+torch.manual_seed(SEED)
+
+
 # ── Model ─────────────────────────────────────────────────────────────────────
 def build_tiny_model(vocab_size: int) -> Transformer:
     args = ModelArgs(
