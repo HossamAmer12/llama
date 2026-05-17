@@ -1,4 +1,5 @@
 import torch
+import matplotlib.pyplot as plt
 
 class KMeans:
     def __init__(self, k: int, max_iters: int = 100):
@@ -30,6 +31,28 @@ class KMeans:
         return self._assign(X)
 
 
+def plot_clusters(X: torch.Tensor, labels: torch.Tensor, centroids: torch.Tensor):
+    X_np = X.numpy()
+    labels_np = labels.numpy()
+    centroids_np = centroids.numpy()
+
+    colors = ['#7F77DD', '#1D9E75', '#D85A30']
+
+    plt.figure(figsize=(6, 5))
+    for i in range(centroids_np.shape[0]):
+        mask = labels_np == i
+        plt.scatter(X_np[mask, 0], X_np[mask, 1],
+                    c=colors[i], alpha=0.5, s=20, label=f'cluster {i}')
+
+    plt.scatter(centroids_np[:, 0], centroids_np[:, 1],
+                c='black', marker='X', s=200, zorder=5, label='centroids')
+
+    plt.legend()
+    plt.title('KMeans clustering')
+    plt.tight_layout()
+    plt.savefig('kmeans.png', dpi=150)
+    plt.show()
+
 # --- toy data ---
 torch.manual_seed(0)
 X = torch.cat([
@@ -42,3 +65,6 @@ km = KMeans(k=3)
 km.fit(X)
 labels = km.predict(X)
 print(labels)
+
+
+plot_clusters(X, labels, km.centroids)

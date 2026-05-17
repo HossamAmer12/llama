@@ -135,18 +135,31 @@ def extract_unit(text: str) -> str:
 
 def compute_reward(response: str, ground_truth: str) -> float:
     """
-    1.0  — number AND unit both match
-    0.5  — number matches, unit wrong (or vice versa)
-    0.1  — generated any number at all (partial credit, keeps gradient flowing)
-    0.0  — no number generated
+    Production (Colab, real Llama2):
+      1.0  — number AND unit both match
+      0.5  — number matches, unit wrong (or vice versa)
+      0.1  — generated any number at all (partial credit, keeps gradient flowing)
+      0.0  — no number generated
+
+    LOCAL_TEST proxy (tiny random model):
+      Rewards response-token diversity. Random models get trapped in repetition
+      loops ("waited waited waited…") — their digit tokens have low initial weights
+      and almost never get sampled. Diversity score creates real variance across the
+      G samples so GRPO has a gradient signal to work with.
     """
+    if LOCAL_TEST:
+        tokens = response.split()
+        if not tokens:
+            return 0.0
+        return len(set(tokens)) / len(tokens)   # 0.0 (all same) → 1.0 (all unique)
+
     pred_num  = extract_number(response)
     true_num  = extract_number(ground_truth)
     pred_unit = extract_unit(response)
     true_unit = extract_unit(ground_truth)
 
     if pred_num is None:
-        return 0.0   # didn't even produce a number
+        return 0.0
 
     num_match  = (true_num is not None and
                   abs(pred_num - true_num) < 1e-3 * max(abs(true_num), 1.0))
@@ -156,7 +169,7 @@ def compute_reward(response: str, ground_truth: str) -> float:
         return 1.0
     elif num_match or unit_match:
         return 0.5
-    return 0.1       # generated a number, but wrong — still useful signal
+    return 0.1
 
 # ── Generation & log-probs ────────────────────────────────────────────────────
 def sample_response(model, prompt_tokens: torch.Tensor, tokenizer):
