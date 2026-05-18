@@ -42,6 +42,7 @@ def dropout(x: torch.Tensor, p: float, training: bool) -> torch.Tensor:
     rand_generator = torch.rand_like(x)
     print(f"Random values for dropout mask:\n{rand_generator}")
     mask  = (rand_generator > p).float()
+    print(f"Dropout mask (1=keep, 0=drop):\n{mask}")
 
     # Inverted scaling: divide by (1-p) so E[output] = E[input]
     # If p=0.4, then we keep 60% of units, so we scale survivors by 1/0.6 = 1.6667
