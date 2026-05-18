@@ -35,6 +35,17 @@ if __name__ == "__main__":
         loss = out.sum()
         print(f"Loss after forward pass {i+1}: {loss.item():.4f}")
         
+
+        # Gradients (math)
+        # Z = x @ W.T + b
+        # L = Z.sum()
+        # dL/dZ = 1 (since L is sum of all elements in Z
+        # dL/dW = dL/dZ * dZ/dW = dZ.T @ x
+        # dL/db = dL/dZ * dZ/db = dZ.sum(dim=0)
+        # dZ = torch.ones(5, 2)        # dL/dZ = 1 everywhere (derivative of sum)
+        # dW = dZ.T @ x                # (2, 3)
+        # db = dZ.sum(dim=0)           # (2,)
+        
         # Backward pass
         layer.zero_grad()  # Clear previous gradients
         loss.backward() # Compute gradients with respect to weights and bias
