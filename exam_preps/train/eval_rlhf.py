@@ -1,3 +1,20 @@
+'''
+Evaluation for RLHF: inter-annotator agreement, position bias, consistency, majority vote, win rates, Bradley-Terry, bootstrap CI, rank correlation.
+
+Lessons learnt:
+1) Agreement rate is easy to compute but doesn't account for chance agreement. Cohen's Kappa is better for inter-annotator reliability.
+2) Position bias can be detected by comparing the distribution of labels when a model is in position A vs B. A consistent judge should give the same label regardless of order.
+3) Majority vote can improve reliability by aggregating multiple annotators, but it can still be biased if all annotators share the same bias.
+4) Win rates are intuitive but don't account for opponent strength. Bradley-Terry provides a more nuanced ranking by considering the strength of opponents.
+5) Bootstrap confidence intervals help quantify the uncertainty in win rates, which is crucial for making informed decisions based on the results.
+6) Rank correlation (Spearman ρ) can show that even a noisy judge can be useful if it preserves the relative ordering of models, which is often more important than per-pair agreement for model selection. 
+7) It's important to use a richer dataset with known ground truth and multiple annotators to properly evaluate the reliability and biases of judges.
+8) Simulating data with controlled noise and bias allows us to test our evaluation metrics and understand their behavior under different conditions.
+9) When evaluating judges, it's crucial to look at multiple metrics (agreement, bias, consistency, ranking quality) rather than relying on a single number.
+10) In practice, a judge with low kappa but high rank correlation might still be valuable for model selection, as it can correctly identify the best models even if it gets some pairs wrong.
+
+'''
+
 import pandas as pd
 import numpy as np
 
@@ -124,6 +141,8 @@ def make_flip_dataset(n_pairs=80):
             })
     return pd.DataFrame(rows)
 
+# A judge sees A, B and give an answer should say the same
+# about B, A (after flipping the answer). If not, it is inconsistent and likely relying on position cues.
 def consistency_rate(df, judge_col):
     orig   = df[~df["is_flipped"]].set_index("pair_id")[judge_col]
     flip   = df[ df["is_flipped"]].set_index("pair_id")[judge_col]
