@@ -1,3 +1,18 @@
+'''
+Clip Gradient Norm Functions
+
+There are two common ways to clip gradients in deep learning:
+1. Clip by value: clip each individual gradient element to a specified range (e.g. [-1, 1]).
+2. Clip by global norm: compute the global norm of all gradients and scale them down if the norm exceeds a threshold.
+
+Here, we are implementing by global norm, which is more common and generally more effective for training stability. 
+The function `clip_grad_global_norm` computes the global norm of the gradients and scales them down 
+if they exceed the specified `max_norm`. 
+It also returns the global norm before clipping, which can be useful for logging and monitoring during training.
+
+'''
+
+
 import torch
 
 def clip_grad_global_norm(parameters, max_norm: float, eps: float = 1e-6) -> float:
@@ -50,3 +65,6 @@ if __name__ == "__main__":
     print(f"global norm before clipping : {norm_before:.6f}")
     print(f"g1 err : {(g1_ours - p1.grad).abs().max().item():.2e}")
     print(f"g2 err : {(g2_ours - p2.grad).abs().max().item():.2e}")
+    
+    print(f"reference norm before clipping : {norm_ref:.6f}")
+    print(f"norms match : {abs(norm_before - norm_ref) < 1e-6}")
