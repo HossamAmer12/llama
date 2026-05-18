@@ -84,7 +84,16 @@ def make_execute_node(run_tool):
     """Closes over the MCP tool so the node can be added to the graph normally."""
     async def execute_node(state: AgentState) -> dict:
         raw = await run_tool.ainvoke({"code": state["code"]})
-        result = json.loads(raw) if isinstance(raw, str) else raw
+        # ainvoke may return: str, dict, or list of MCP content items
+        if isinstance(raw, dict):
+            result = raw
+        elif isinstance(raw, str):
+            result = json.loads(raw)
+        elif isinstance(raw, list):
+            text = raw[0].text if hasattr(raw[0], "text") else raw[0].get("text", str(raw[0]))
+            result = json.loads(text)
+        else:
+            result = {"status": "runtime_error", "output": "", "error": str(raw)}
         updates: dict = {"exec_result": result}
         if result["status"] != "success":
             updates["previous_error"] = result["error"]
@@ -139,29 +148,29 @@ def build_graph(run_tool):
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 async def run_pipeline():
-    async with MultiServerMCPClient(MCP_SERVERS) as client:
-        tools = client.get_tools()
-        print(f"MCP tools loaded: {[t.name for t in tools]}\n")
+    client = MultiServerMCPClient(MCP_SERVERS)
+    tools = await client.get_tools()
+    print(f"MCP tools loaded: {[t.name for t in tools]}\n")
 
-        run_tool = next(t for t in tools if t.name == "run_python_code")
-        graph = build_graph(run_tool)
+    run_tool = next(t for t in tools if t.name == "run_python_code")
+    graph = build_graph(run_tool)
 
-        initial: AgentState = {
-            "task": TASK,
-            "code": "",
-            "exec_result": {},
-            "eval_passed": False,
-            "eval_feedback": "",
-            "previous_error": None,
-            "attempt": 0,
-        }
+    initial: AgentState = {
+        "task": TASK,
+        "code": "",
+        "exec_result": {},
+        "eval_passed": False,
+        "eval_feedback": "",
+        "previous_error": None,
+        "attempt": 0,
+    }
 
-        final = await graph.ainvoke(initial)
+    final = await graph.ainvoke(initial)
 
-        print(f"Passed   : {final['eval_passed']}")
-        print(f"Attempts : {final['attempt']}")
-        print(f"Feedback : {final['eval_feedback']}")
-        print(f"\nFinal code:\n{final['code']}")
+    print(f"Passed   : {final['eval_passed']}")
+    print(f"Attempts : {final['attempt']}")
+    print(f"Feedback : {final['eval_feedback']}")
+    print(f"\nFinal code:\n{final['code']}")
 
 
 if __name__ == "__main__":
