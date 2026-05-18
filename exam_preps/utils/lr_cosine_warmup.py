@@ -1,3 +1,10 @@
+'''
+LR scheduler with linear warmup and cosine annealing.
+You start first slow with learning rate ramping up linearly from 0 to lr_max over warmup_steps, 
+then decay the learning rate following a cosine curve down to lr_min by the end of training.
+'''
+
+
 import torch
 import math
 
