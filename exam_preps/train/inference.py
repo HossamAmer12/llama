@@ -221,7 +221,41 @@ class LLaMA:
         # Map the sampled token back to the original token index
         next_token = torch.gather(sorted_indices, -1, next_token)  
         return next_token
-
+    
+    def _sample_beam_search(self, logits: torch.Tensor, beam_width: int):
+        '''TODO: Implement beam search sampling
+        '''
+        # Get the top beam_width tokens and their probabilities
+        sorted_logits, sorted_indices = torch.topk(logits, beam_width, dim=-1)
+        probs = torch.softmax(sorted_logits, dim=-1)
+        # Sample the next tokens from the top beam_width probabilities
+        next_tokens = torch.multinomial(probs, num_samples=beam_width)
+        # Map the sampled tokens back to the original token indices
+        next_tokens = torch.gather(sorted_indices, -1, next_tokens)
+        return next_tokens
+    
+    def beam_search(self, input_tokens: torch.Tensor, beam_width: int, max_gen_len: int):
+        '''TODO: Implement beam search decoding
+        '''
+        batch_size = input_tokens.size(0)
+        sequences = [[list(), 0.0]] * batch_size  # (batch_size, beam_width) list of (tokens, score)
+        for _ in range(max_gen_len):
+            all_candidates = []
+            for i in range(len(sequences)):
+                seq, score = sequences[i]
+                if len(seq) > 0 and seq[-1] == self.tokenizer.eos_id():
+                    all_candidates.append((seq, score))
+                    continue
+                input_seq = torch.tensor([seq], dtype=torch.long, device=self.args.device)
+                logits = self.model.forward(input_seq, input_seq.size(1))
+                next_tokens = self._sample_beam_search(logits[:, -1, :], beam_width)
+                for j in range(beam_width):
+                    candidate = (seq + [next_tokens[0][j].item()], score - torch.log(probs[0][j]).item())
+                    all_candidates.append(candidate)
+            ordered = sorted(all_candidates, key=lambda tup: tup[1])
+            sequences = ordered[:beam_width]
+        return sequences
+    
 if __name__ == "__main__":
     """
     Interview exercise:
