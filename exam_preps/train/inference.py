@@ -121,6 +121,7 @@ class LLaMA:
         # Make sure the prompt length is not larger than the maximum sequence length
         assert max_prompt_len <= self.args.max_seq_len, f"prompt length must be less than or equal to {self.args.max_seq_len}"
         
+        # Guarantee that the total length of the tokens (prompt + generated) does not exceed the maximum sequence length
         # Total length of the tokens (batch_size, [min(max_len, max_gen_len + max_prompt_len)])
         total_len = min(self.args.max_seq_len, max_gen_len + max_prompt_len)
         tokens = torch.full((batch_size, total_len), self.tokenizer.pad_id(), dtype=torch.long, device=self.args.device)
