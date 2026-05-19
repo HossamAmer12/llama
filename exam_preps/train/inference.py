@@ -232,8 +232,8 @@ class LLaMA:
         next_tokens = torch.multinomial(probs, num_samples=beam_width)
         # Map the sampled tokens back to the original token indices
         next_tokens = torch.gather(sorted_indices, -1, next_tokens)
-        return next_tokens
-    
+        return next_tokens, probs
+
     def beam_search(self, input_tokens: torch.Tensor, beam_width: int, max_gen_len: int):
         '''TODO: Implement beam search decoding
         '''
@@ -248,7 +248,7 @@ class LLaMA:
                     continue
                 input_seq = torch.tensor([seq], dtype=torch.long, device=self.args.device)
                 logits = self.model.forward(input_seq, input_seq.size(1))
-                next_tokens = self._sample_beam_search(logits[:, -1, :], beam_width)
+                next_tokens, probs = self._sample_beam_search(logits[:, -1, :], beam_width)
                 for j in range(beam_width):
                     candidate = (seq + [next_tokens[0][j].item()], score - torch.log(probs[0][j]).item())
                     all_candidates.append(candidate)
