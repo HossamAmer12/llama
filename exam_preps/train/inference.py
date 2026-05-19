@@ -208,9 +208,19 @@ class LLaMA:
         sorted_probs.div_(sorted_probs.sum(dim=-1, keepdim=True)) 
         next_token = torch.multinomial(sorted_probs, num_samples=1)
         next_token = torch.gather(sorted_indices, -1, next_token)  
-
         return next_token
 
+    def _sample_top_k(self, logits: torch.Tensor, k: int):
+        """TODO: Implement top-k sampling"""
+        sorted_logits, sorted_indices = torch.topk(logits, k, dim=-1)
+        # Do softmax over the top-k logits
+        probs = torch.softmax(sorted_logits, dim=-1)
+        # Sample the next token from the top-k probabilities
+        next_token = torch.multinomial(probs, num_samples=1)
+        
+        # Map the sampled token back to the original token index
+        next_token = torch.gather(sorted_indices, -1, next_token)  
+        return next_token
 
 if __name__ == "__main__":
     """
