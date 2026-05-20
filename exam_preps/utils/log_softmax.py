@@ -22,6 +22,7 @@ def cross_entropy_loss(logits, labels):
     # corresponding to the true labels for each example in the batch
     # log probs is from -inf, 0, the higher the better, 
     # so we take negative to get loss
+    # torch.arrange (log_probs.shape[0]) creates a tensor of indices [0, 1, 2, ..., batch_size-1]
     return -torch.mean(log_probs[torch.arange(log_probs.shape[0]), labels])
     # return -torch.mean(log_probs[torch.arange(len(labels)), labels])
 
